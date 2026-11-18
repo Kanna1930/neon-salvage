@@ -27,6 +27,9 @@ export const CONFIG = {
     overdrive: '#ffe14d',
     hull: '#ff5470',
     heal: '#39ff88',
+    coin: '#ffd94d',
+    drone: '#39ff88',
+    turret: '#ff9a3d',
   },
 
   ship: {
@@ -71,18 +74,73 @@ export const CONFIG = {
     kinds: ['shield', 'magnet', 'overdrive'],
   },
 
+  // Chaser: steers toward the ship. Shooter: keeps its distance and fires
+  // slow aimed orbs. Both read instantly by shape and colour.
+  chaser: {
+    radius: 15,
+    hp: 1,
+    score: 150,
+    speed: 150,
+    turnRate: 2.6,
+    color: '#ff2e88',
+    edge: '#ff7ab8',
+  },
+
+  shooter: {
+    radius: 17,
+    hp: 2,
+    score: 250,
+    speed: 70,
+    fireInterval: 2.6,
+    bulletSpeed: 150,
+    bulletRadius: 6,
+    color: '#b14dff',
+    edge: '#d9a0ff',
+  },
+
+  boss: {
+    radius: 72,
+    baseHp: 42,
+    hpPerBossWave: 12,
+    score: 1000,
+    speed: 42,
+    burstInterval: 3.2,
+    burstCount: 8,
+    burstSpeed: 120,
+    color: '#ff3d5e',
+    edge: '#ff9a3d',
+  },
+
+  // Coin economy: what each source pays. Asteroid coins are per tier
+  // (large / medium / small); cores pay per combo multiplier; the wave
+  // bonus is per wave number. Tuned so the first automation is affordable
+  // inside wave 1 and the snowball is felt within a few minutes.
+  coins: {
+    asteroid: [4, 6, 10],
+    chaser: 15,
+    shooter: 20,
+    boss: 500,
+    core: 10,
+    waveBonus: 50,
+  },
+
   waves: {
     baseAsteroids: 4,
     perWave: 2,
     maxAsteroids: 16,
     speedGrowth: 1.07,
     clearBonus: 250,
+    bossEvery: 5,
+    bossAsteroids: 4,
+    // Enemy HP grows with the wave so later waves stay threatening.
+    hpGrowth: 0.15,
   },
 
   particles: {
     explosionCount: 26,
     pickupCount: 12,
-    max: 400,
+    max: 500,
+    popupLife: 0.9,
   },
 
   hullMax: 3,

@@ -103,6 +103,17 @@ export function createAudio() {
       });
     },
 
+    // Buying something: a coin clink.
+    buy() {
+      tone({ type: 'sine', from: 880, duration: 0.08, volume: 0.3 });
+      tone({ type: 'sine', from: 1318, duration: 0.14, volume: 0.3, delay: 0.07 });
+    },
+
+    // Trying to buy what you cannot afford: a dull buzz.
+    denied() {
+      tone({ type: 'square', from: 160, to: 110, duration: 0.16, volume: 0.2 });
+    },
+
     gameOver() {
       [330, 262, 196, 131].forEach((freq, i) => {
         tone({ type: 'triangle', from: freq, duration: 0.32, volume: 0.3, delay: i * 0.16 });

@@ -1,13 +1,21 @@
 // Neon Salvage — bootstrap, game loop and screen state machine.
-// One job: own the canvas, the screen flow (title -> playing -> game over),
-// the animation loop, and the ?shot= hooks that stage deterministic states
-// for screenshots. The simulation itself lives in world.js.
+// One job: own the canvas, the screen flow (title -> playing -> shop ->
+// game over), the animation loop, and the ?shot= hooks that stage
+// deterministic states for screenshots. The simulation itself lives in
+// world.js; the shop lives in shop.js.
 
 import { CONFIG } from './config.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createWorld, startRun, updateWorld, updateAmbient } from './world.js';
-import { drawBackground, drawAsteroids, drawCores, drawPowerups, drawBullets, drawParticles, drawShip, drawBanner, drawTitle, drawGameOver } from './render.js';
+import {
+  SHOP_ITEMS, buySkill, buyAutomation, shopCardRects, shopButtonRect,
+} from './shop.js';
+import {
+  drawBackground, drawAsteroids, drawEnemies, drawEnemyBullets, drawBoss,
+  drawDrones, drawCores, drawPowerups, drawBullets, drawParticles,
+  drawShip, drawBanner, drawTitle, drawShop, drawGameOver,
+} from './render.js';
 import { drawHud } from './hud.js';
 
 const BEST_KEY = 'neon-salvage-best';
@@ -22,14 +30,17 @@ const input = createInput(canvas);
 const audio = createAudio();
 const world = createWorld(seed);
 
-let screen = 'title'; // title | playing | paused | over
+let screen = 'title'; // title | playing | paused | shop | over
 let best = 0;
 try {
   best = Number.parseInt(window.localStorage.getItem(BEST_KEY) || '0', 10) || 0;
 } catch {
   best = 0;
 }
-let result = { score: 0, best: 0, waves: 0, salvage: 0, time: 0 };
+let result = {
+  score: 0, best: 0, waves: 0, salvage: 0, time: 0,
+  coinsEarned: 0, foes: 0, automation: 0,
+};
 
 // View transform: logical 960x600 playfield fitted into the window.
 let dpr = 1;
@@ -60,13 +71,13 @@ function pointerLogical() {
     x: (input.mouse.x - view.ox) / view.scale,
     y: (input.mouse.y - view.oy) / view.scale,
     down: input.mouse.down,
+    space: input.held('Space'),
   };
 }
 
 function beginRun() {
   audio.unlock();
   startRun(world);
-  world.ship.fireTimer = 0.25;
   screen = 'playing';
 }
 
@@ -81,15 +92,52 @@ function finishRun() {
       // Private mode or blocked storage: best still shows this session.
     }
   }
+  const automation = Object.values(world.auto).reduce((a, b) => a + b, 0);
   result = {
     score: finalScore,
     best,
     waves: world.wave,
     salvage: world.salvage,
     time: world.time,
+    coinsEarned: Math.floor(world.coinsEarned),
+    foes: world.foesDestroyed,
+    automation,
   };
   audio.gameOver();
   screen = 'over';
+}
+
+function openShop() {
+  audio.unlock();
+  screen = 'shop';
+}
+
+function closeShop() {
+  screen = 'playing';
+}
+
+function buyIndex(index) {
+  const spec = SHOP_ITEMS[index];
+  if (!spec) return;
+  const ok = index < 6 ? buySkill(world, spec.id) : buyAutomation(world, spec.id);
+  if (ok) audio.buy();
+  else audio.denied();
+}
+
+function cardAt(pointer) {
+  const rects = shopCardRects();
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    if (pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function buttonAt(pointer) {
+  const r = shopButtonRect();
+  return pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h;
 }
 
 function update(dt) {
@@ -101,12 +149,33 @@ function update(dt) {
   } else if (screen === 'playing') {
     if (input.pressed('KeyP', 'Escape')) {
       screen = 'paused';
+    } else if (input.pressed('KeyB')) {
+      openShop();
+    } else if (input.mouse.clicked && buttonAt(pointerLogical())) {
+      openShop();
     } else {
       const outcome = updateWorld(world, input, pointerLogical(), audio, dt);
       if (outcome.gameOver) finishRun();
     }
   } else if (screen === 'paused') {
     if (input.pressed('KeyP', 'Escape', 'Enter')) screen = 'playing';
+  } else if (screen === 'shop') {
+    if (input.pressed('KeyB', 'Escape')) {
+      closeShop();
+    } else if (input.pressed('Digit1')) buyIndex(0);
+    else if (input.pressed('Digit2')) buyIndex(1);
+    else if (input.pressed('Digit3')) buyIndex(2);
+    else if (input.pressed('Digit4')) buyIndex(3);
+    else if (input.pressed('Digit5')) buyIndex(4);
+    else if (input.pressed('Digit6')) buyIndex(5);
+    else if (input.pressed('Digit7')) buyIndex(6);
+    else if (input.pressed('Digit8')) buyIndex(7);
+    else if (input.pressed('Digit9')) buyIndex(8);
+    else if (input.pressed('Digit0')) buyIndex(9);
+    else if (input.mouse.clicked) {
+      const index = cardAt(pointerLogical());
+      if (index >= 0) buyIndex(index);
+    }
   } else if (screen === 'over') {
     updateAmbient(world, dt);
     if (input.pressed('KeyR', 'Enter') || input.mouse.clicked) beginRun();
@@ -126,17 +195,24 @@ function render() {
 
   drawBackground(ctx, world);
   drawAsteroids(ctx, world);
+  drawEnemies(ctx, world);
+  drawEnemyBullets(ctx, world);
+  drawBoss(ctx, world);
   drawCores(ctx, world);
   drawPowerups(ctx, world);
   drawBullets(ctx, world);
+  drawDrones(ctx, world);
   drawParticles(ctx, world);
   if (screen !== 'over') drawShip(ctx, world);
   drawBanner(ctx, world);
 
-  if (screen === 'playing' || screen === 'paused') {
+  if (screen === 'playing' || screen === 'paused' || screen === 'shop') {
     drawHud(ctx, world, audio.isMuted());
-  } else if (screen === 'title') {
+  }
+  if (screen === 'title') {
     drawTitle(ctx, best, world.time);
+  } else if (screen === 'shop') {
+    drawShop(ctx, world);
   } else if (screen === 'over') {
     drawGameOver(ctx, result);
   }
@@ -161,43 +237,62 @@ function render() {
   }
 }
 
-// --- Screenshot staging: ?shot=title|play|over&seed=N ---------------------
+// --- Screenshot staging: ?shot=title|play|over|shop&seed=N --------------
 // These hooks render one deterministic frame of the game's own states so
 // the bounty screenshots show the real game. Interactive play ignores them.
 const silentAudio = {
   shoot() {}, pickup() {}, explosion() {}, hit() {}, powerup() {},
-  waveClear() {}, gameOver() {},
+  waveClear() {}, gameOver() {}, buy() {}, denied() {},
 };
 
 function stagePlayShot() {
   startRun(world);
-  // Stage a lively mid-wave field with the game's own spawners.
-  const { rng } = world;
-  void rng;
-  // Cores in the ship's path so the run collects them and builds a combo.
+  // Buy into the loop with the shop itself so the HUD shows a real build.
+  world.coins = 2000;
+  world.coinsEarned = 2000;
+  buyAutomation(world, 'miner');
+  buyAutomation(world, 'drone');
+  buyAutomation(world, 'robot');
+  buyAutomation(world, 'turret');
+  buySkill(world, 'rapid');
+  buySkill(world, 'heavy');
+  // Cores in the ship's path so the run collects them.
   world.cores.push(
     { x: 545, y: 282, vx: -10, vy: 6, radius: 9, life: 12, pulse: 0 },
     { x: 600, y: 274, vx: -8, vy: -4, radius: 9, life: 12, pulse: 1 },
     { x: 655, y: 266, vx: 6, vy: 8, radius: 9, life: 12, pulse: 2 },
   );
-  // A magnet power-up right beside the ship: collected in the first frames.
   world.powerups.push({ x: 510, y: 290, vx: 0, vy: 0, kind: 'magnet', radius: 13, life: 10, pulse: 0 });
+  runScripted(world, 160);
+  world.ship.invuln = 0;
+  world.combo = Math.max(3, Math.min(world.salvage, CONFIG.combo.maxMultiplier));
+  world.comboTimer = CONFIG.combo.windowSeconds;
+  screen = 'playing';
+}
+
+// Scripted pilot: fly right, aim at the nearest rock, hold fire. Used by
+// the staged screenshots so the field is a real played state, not a pose.
+function runScripted(world, frames) {
   const scripted = {
-    held: (code) => code === 'KeyD' || code === 'Space',
+    held: (code) => code === 'KeyD',
     pressed: () => false,
     endFrame() {},
   };
-  const pointer = { x: 760, y: 190, down: true };
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < frames; i++) {
+    let target = null;
+    let bestD = Infinity;
+    for (const a of world.asteroids) {
+      const d = (a.x - world.ship.x) ** 2 + (a.y - world.ship.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        target = a;
+      }
+    }
+    const pointer = target
+      ? { x: target.x, y: target.y, down: true, space: false }
+      : { x: world.ship.x + 100, y: world.ship.y, down: true, space: false };
     updateWorld(world, scripted, pointer, silentAudio, 1 / 60);
   }
-  // The scripted run may have taken a hit; make sure the ship is visible.
-  world.ship.invuln = 0;
-  // The pickups just happened: restore the combo the run built, so the
-  // staged frame shows the multiplier the player earned.
-  world.combo = Math.min(world.salvage, CONFIG.combo.maxMultiplier);
-  world.comboTimer = CONFIG.combo.windowSeconds;
-  screen = 'playing';
 }
 
 function stageShot(kind) {
@@ -208,13 +303,28 @@ function stageShot(kind) {
     stagePlayShot();
   } else if (kind === 'over') {
     stagePlayShot();
-    // Keep the world behind the panel consistent with the result it shows.
     world.score = 4860;
     world.wave = 4;
     world.salvage = 23;
     world.hull = 0;
-    result = { score: 4860, best: 5120, waves: 4, salvage: 23, time: 0.4 };
+    world.banner = null;
+    world.bannerTimer = 0;
+    result = {
+      score: 4860, best: 5120, waves: 4, salvage: 23, time: 0.4,
+      coinsEarned: 2140, foes: 87, automation: 5,
+    };
     screen = 'over';
+  } else if (kind === 'shop') {
+    startRun(world);
+    // A mid-run wallet: some cards affordable, some greyed out. Play a
+    // few seconds first so the income rate in the header is a real number.
+    world.coins = 420;
+    world.coinsEarned = 420;
+    buyAutomation(world, 'miner');
+    buySkill(world, 'rapid');
+    runScripted(world, 150);
+    world.coins = 170;
+    screen = 'shop';
   }
   render();
 }
